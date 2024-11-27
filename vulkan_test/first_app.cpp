@@ -11,8 +11,10 @@
 namespace lve {
 
     struct GlobalUbo {
-        alignas(16) glm::mat4 projectionView{ 1.f };
-        alignas(16) glm::vec3 lightDirection = glm::normalize(glm::vec3{ 5.f,-3.f,-1.f });
+        glm::mat4 projectionView{ 1.f };
+        glm::vec4 ambientLightColor {1.f, 1.f, 1.f, .3f };
+        glm::vec3 lightPosition{-1.f};
+        alignas(16) glm::vec4 lightColor{ 1.f };
     };
 
 
@@ -82,7 +84,7 @@ namespace lve {
 
             float aspect = lveRenderer.getAspectRatio();
             //camera.setOrthographicProjection(-aspect,aspect,-1,1,-1,1);
-            camera.setPerspectiveProjection(glm::radians(50.f), aspect, 0.1f, 10.f);
+            camera.setPerspectiveProjection(glm::radians(50.f), aspect, 0.1f, 100.f);
 
             if (auto commandbuffer = lveRenderer.beginFrame()) {
                 int frameIndex = lveRenderer.getFrameIndex();
@@ -171,16 +173,29 @@ namespace lve {
     void FirstApp::loadGameObjects() {
 
         //std::shared_ptr<LveModel> lveModel = createCubeModel(lveDevice, { .0f,.0f,.0f });
-        std::shared_ptr<LveModel> lveModel = LveModel::createModelFromFile(lveDevice, "C:/Users/Felix/source/repos/vulkan_test/vulkan_test/models/smooth_vase.obj");
+        std::shared_ptr<LveModel> lveModel = LveModel::createModelFromFile(lveDevice, "C:/Users/felix/source/vulkan/vulkan_test/vulkan_test/models/smooth_vase.obj");
         auto cube = LveGameObject::createObject();
         cube.model = lveModel;
         
-        cube.transform.translation = { .0f,.0f, 1.5f};
+        cube.transform.translation = { .0f,.5f, 0.f};
         cube.transform.scale = { .5f,.5f,.5f };
         cube.transform.rotation.y = glm::radians(20.f);
         cube.transform.rotation.x = glm::radians(20.f);
 
         gameObjects.push_back(cube);
+
+
+       lveModel = LveModel::createModelFromFile(lveDevice, "C:/Users/felix/source/vulkan/vulkan_test/vulkan_test/models/quad.obj");
+        auto floor = LveGameObject::createObject();
+        floor.model = lveModel;
+
+        floor.transform.translation = { .0f,.5f, 0.f };
+        floor.transform.scale = { 3.f,1.f,3.f };
+        floor.transform.rotation.y = glm::radians(20.f);
+        floor.transform.rotation.x = glm::radians(20.f);
+
+        gameObjects.push_back(floor);
+    
     }
 
 
