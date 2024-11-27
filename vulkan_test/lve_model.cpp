@@ -1,8 +1,14 @@
 #include "lve_model.hpp"
-
+#include "lve_buffer.hpp"
 //libs
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
+#define GLM_ENABLE_EXPERIMENTAL
+
+
+#include <cassert>
+#include <string>
+#include <unordered_map>
 #include <iostream>
 
 namespace lve {
@@ -12,49 +18,36 @@ namespace lve {
 		createIndexBuffer(builder.indices);
 	}
 
-	LveModel::~LveModel(){
-		vkDestroyBuffer(lveDevice.device(), vertexBuffer, nullptr);
-		vkFreeMemory(lveDevice.device(), vertexBufferMemory, nullptr);
-
-		if (hasIndexBuffer) {
-			vkDestroyBuffer(lveDevice.device(), indexBuffer, nullptr);
-			vkFreeMemory(lveDevice.device(), indexBufferMemory, nullptr);
-		}
-	}
+	LveModel::~LveModel(){}
 
 
 	void LveModel::createVertexBuffer(const std::vector<Vertex> &vertecies) {
 		vertexCount = static_cast<uint32_t>(vertecies.size());
 		VkDeviceSize bufferSize = sizeof(vertecies[0]) * vertexCount;
+		uint32_t vertexSize = sizeof(vertecies[0]);
 
-		VkBuffer stagingBuffer;
-		VkDeviceMemory stagingBufferMemory;
-		lveDevice.createBuffer(
-			bufferSize,
+		LveBuffer stagingBuffer{
+			lveDevice,
+			vertexSize,
+			vertexCount,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			stagingBuffer,
-			stagingBufferMemory
-		);
+		};
 
-		void* data;
-		vkMapMemory(lveDevice.device(), stagingBufferMemory, 0, bufferSize, 0, &data);
-		memcpy(data, vertecies.data(), static_cast<size_t>(bufferSize));
-		vkUnmapMemory(lveDevice.device(), stagingBufferMemory);
+		stagingBuffer.map();
+		stagingBuffer.writeToBuffer((void*)vertecies.data());
 
-
-		lveDevice.createBuffer(
-			bufferSize,
+		vertexBuffer = std::make_unique<LveBuffer>(
+			lveDevice,
+			vertexSize,
+			vertexCount,
 			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			vertexBuffer,
-			vertexBufferMemory
-		);
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+			);
 
-		lveDevice.copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
 
-		vkDestroyBuffer(lveDevice.device(), stagingBuffer, nullptr);
-		vkFreeMemory(lveDevice.device(), stagingBufferMemory, nullptr);
+		lveDevice.copyBuffer(stagingBuffer.getBuffer(), vertexBuffer->getBuffer(), bufferSize);
+
 	}
 		
 	
@@ -66,36 +59,29 @@ namespace lve {
 		if (!hasIndexBuffer) return;
 
 		VkDeviceSize bufferSize = sizeof(indicies[0]) * indexCount;
+		uint32_t indexSize = sizeof(indicies[0]);
 
-		VkBuffer stagingBuffer;
-		VkDeviceMemory stagingBufferMemory;
-		lveDevice.createBuffer(
-			bufferSize,
-			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			stagingBuffer,
-			stagingBufferMemory
-		);
+		LveBuffer stagingBuffer{
+			lveDevice,
+			indexSize,
+			indexCount,
+			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+		};
 
-		void* data;
-		vkMapMemory(lveDevice.device(), stagingBufferMemory, 0, bufferSize, 0, &data);
-		memcpy(data, indicies.data(), static_cast<size_t>(bufferSize));
-		vkUnmapMemory(lveDevice.device(), stagingBufferMemory);
+		stagingBuffer.map();
+		stagingBuffer.writeToBuffer((void*)indicies.data());
 
-
-		lveDevice.createBuffer(
-			bufferSize,
+		indexBuffer = std::make_unique<LveBuffer>(
+			lveDevice,
+			indexSize,
+			indexCount,
 			VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			indexBuffer,
-			indexBufferMemory
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
 		);
 
-		lveDevice.copyBuffer(stagingBuffer, indexBuffer, bufferSize);
 
-		vkDestroyBuffer(lveDevice.device(), stagingBuffer, nullptr);
-		vkFreeMemory(lveDevice.device(), stagingBufferMemory, nullptr);
-
+		lveDevice.copyBuffer(stagingBuffer.getBuffer(), indexBuffer->getBuffer(), bufferSize);
 	}
 
 	std::unique_ptr<LveModel> LveModel::createModelFromFile(LveDevice& device, const std::string& filepath)
@@ -111,11 +97,11 @@ namespace lve {
 	void LveModel::bind(VkCommandBuffer commandBuffer) {
 
 		if (hasIndexBuffer) {
-			vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32 );
+			vkCmdBindIndexBuffer(commandBuffer, indexBuffer->getBuffer(), 0, VK_INDEX_TYPE_UINT32);
 		}
 
 
-		VkBuffer buffers[] = { vertexBuffer };
+		VkBuffer buffers[] = { vertexBuffer->getBuffer()};
 		VkDeviceSize offsets[] = { 0 };
 		vkCmdBindVertexBuffers(commandBuffer, 0, 1, buffers, offsets);
 
@@ -141,17 +127,12 @@ namespace lve {
 
 
 	 std::vector<VkVertexInputAttributeDescription> LveModel::Vertex::getBindingAttributes() {
-		 std::vector<VkVertexInputAttributeDescription> attributeDescription(2);
+		 std::vector<VkVertexInputAttributeDescription> attributeDescription{};
 
-		 attributeDescription[0].binding = 0;
-		 attributeDescription[0].location = 0;
-		 attributeDescription[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-		 attributeDescription[0].offset = offsetof(Vertex, position);		 
-		 
-		 attributeDescription[1].binding = 0;
-		 attributeDescription[1].location = 1;
-		 attributeDescription[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-		 attributeDescription[1].offset = offsetof(Vertex, color);
+		 attributeDescription.push_back({ 0,0,VK_FORMAT_R32G32B32_SFLOAT,offsetof(Vertex, position) });
+		 attributeDescription.push_back({ 1,0,VK_FORMAT_R32G32B32_SFLOAT,offsetof(Vertex, color) });
+		 attributeDescription.push_back({ 2,0,VK_FORMAT_R32G32B32_SFLOAT,offsetof(Vertex, normal) });
+		 attributeDescription.push_back({ 3,0,VK_FORMAT_R32G32_SFLOAT,offsetof(Vertex, uv) });
 
 		 return attributeDescription;
 
@@ -183,18 +164,11 @@ namespace lve {
 						 attrib.vertices[3 * index.vertex_index + 2]
 					 };
 
-					 //auto colorIndex = 3 * index.vertex_index + 2;
-					 vertex.color = { 1.f,1.f,1.f };
-
-				/*	 if (colorIndex < attrib.colors.size()) {
-						 vertex.color = {
-							 attrib.colors[colorIndex + 0],
-							 attrib.colors[colorIndex + 1],
-							 attrib.colors[colorIndex + 2]
-						 };
-					 }
-					 else {
-					 }*/
+					 vertex.color = {
+							 attrib.colors[3 * index.vertex_index + 0],
+							 attrib.colors[3 * index.vertex_index + 1],
+							 attrib.colors[3 * index.vertex_index + 2]
+					 };
 
 				 }
 
@@ -215,7 +189,7 @@ namespace lve {
 					 };
 				 }
 
-				 //vertecies.push_back(vertex);
+				 vertecies.push_back(vertex);
 			 }
 
 		 }
